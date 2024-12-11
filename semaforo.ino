@@ -1,115 +1,159 @@
+#include "esp_timer.h" // Biblioteca nativa para temporizadores do ESP32
+
+/*
+Trabalho Realizado por: 
+Ana Sá nº303 ERSC IPVC
+Eduardo Junqueira nº30241 ERSC IPVC
+
+Trabalho consiste em :
+Gerir 1 sensor( sensor de touch);
+Gerir 1 atuador(semáforo de 3 cores )
+Gerir http via wifi para gerir o nosso html
+
+*/
+
+
 // Definir pinos atuador:
-#define LedRed 23     // LED vermelho no semáforo ​
-#define LedYellow 22  // LED amarelo no semáforo ​
-#define LedGreen 21   // LED verde no semáforo
+#define LedRed 23     // LED vermelho no semáforo no pino 23 do ESP32
+#define LedYellow 22  // LED amarelo no semáforo no pino 22 do ESP32
+#define LedGreen 21   // LED verde no semáforo no pino 21 do ESP32
 
 // Definir pinos sensor:
-#define sensorTouch 19 // Sensor de toque​
-
-// Estes podem vir a ser usados mais adiante mas neste momento não são necessários.
-//#define sensorPin 34 // Sensor de temperatura​
-//#define ledPin 23 // Pino do LED para MQTT Pull ​
+#define sensorTouch 19 // Sensor de toque no pino 19 do ESP32
 
 /** Definir estados do semáforo com enum **/
 enum State {
-  OFF,    // Todos os LEDs desligados vou usar
-  RED,    // LED vermelho ligado vou usar 
-  YELLOW, // LED amarelo ligado vou usar 
-  GREEN,  // LED verde ligado vou usar 
-  ON      // Todos os LEDs ligados ainda não sei em que situação vou usar
+  OFF,    // Todos os LEDs desligados caso1
+  RED,    // LED vermelho ligado. caso2
+  YELLOW, // LED amarelo ligado.  caso3
+  GREEN,  // LED verde ligado.  caso4
+  ON      // Todos os LEDs ligados. caso5
 };
 
-// Definir variáveis globais
-bool touchActivated = false; // Estado do sensor de toque passa para true quando eu quiser que passe
-State trafficLightState = OFF; // Estado inicial do Semáforo
+// Variáveis globais
+bool touchActivated = false;      // Estado do sensor de toque
+State trafficLightState = OFF;    // Estado inicial do semáforo
+volatile bool timerFlag = false;  // Flag para indicar que o temporizador disparou
 
-// Definir flag timer1
-bool timerFlag = false; // Flag para indicar quando o timer dispara
+esp_timer_handle_t periodic_timer; // Identificador do temporizador
 
-/** Definir função semáforo de estado **/
+/** Função chamada quando o temporizador dispara **/
+void IRAM_ATTR onTimer(void *param) {
+  timerFlag = true; // Ativar flag para indicar que o temporizador disparou
+}
+
+/** Função para configurar o estado do semáforo **/
 void controlTrafficLight(State state) {
   // Desligar todos os LEDs
   digitalWrite(LedRed, LOW);
   digitalWrite(LedYellow, LOW);
   digitalWrite(LedGreen, LOW);
 
-  // Ligar o LED correspondente ao estado fazer Switch Case temos 5 estados apenas por enquanto nesta ordem:
+  // Configurar LEDs e tempo do temporizador
   switch (state) {
-    // State OFF:
     case OFF:
-      digitalWrite(LedRed, LOW);
-      digitalWrite(LedYellow, LOW);
-      digitalWrite(LedGreen, LOW);
       Serial.println("Semáforo: OFF");
+       esp_timer_stop(periodic_timer); // Parar temporizador anterior
+       esp_timer_start_periodic(periodic_timer, 4 * 1000000); // Configurar para 4 segundos
       break;
+     
 
-    // State ON:
     case ON:
       digitalWrite(LedRed, HIGH);
       digitalWrite(LedYellow, HIGH);
       digitalWrite(LedGreen, HIGH);
       Serial.println("Semáforo: ON");
+       esp_timer_stop(periodic_timer); // Parar temporizador anterior
+      esp_timer_start_periodic(periodic_timer, 1 * 1000000); // Configurar para 1 segundo
       break;
 
-    // State RED:
     case RED:
       digitalWrite(LedRed, HIGH);
       Serial.println("Semáforo: Vermelho");
+      // Atualizar temporizador para 10 segundos
+      esp_timer_stop(periodic_timer); // Parar temporizador anterior
+      esp_timer_start_periodic(periodic_timer, 15 * 1000000); // Configurar para 10 segundos
       break;
 
-    // State YELLOW:
     case YELLOW:
       digitalWrite(LedYellow, HIGH);
       Serial.println("Semáforo: Amarelo");
+
+      // Atualizar temporizador para 2 segundos
+      esp_timer_stop(periodic_timer);
+      esp_timer_start_periodic(periodic_timer, 5 * 1000000); // Configurar para 2 segundos
       break;
 
-    // State GREEN:
     case GREEN:
       digitalWrite(LedGreen, HIGH);
       Serial.println("Semáforo: Verde");
+
+      // Atualizar temporizador para 5 segundos
+      esp_timer_stop(periodic_timer);
+      esp_timer_start_periodic(periodic_timer, 15 * 1000000); // Configurar para 5 segundos
       break;
   }
 }
 
-/** Definir função sensor de touch para verificar o sensor de toque **/
+/** Função para verificar o sensor de toque **/
 void checkTouchSensor() {
-  // Leitura do sensor de toque:
-  if (digitalRead(sensorTouch) == HIGH) { // Se o sensor de toque for detetado como HIGH, significa que foi tocado
-
-    // Apenas processa no primeiro toque, mesmo que a pessoa faça um toque extenso ou múltiplos rápidos
-    if (!touchActivated) { // Verifica se a variável touchActivated foi ativada
-      touchActivated = true; // Caso não tenha sido ativada ele ativa
+  if (digitalRead(sensorTouch) == HIGH) {
+    if (!touchActivated) {
+      touchActivated = true;
       Serial.println("Sensor Ativado!");
 
-      // Altera o estado do semáforo
-      trafficLightState = static_cast<State>((trafficLightState + 1) % 5); // Altera entre os 5 estados definidos no enum
-      controlTrafficLight(trafficLightState); // Controla e atualiza o estado do semáforo
+      // Alterar manualmente o estado do semáforo
+      trafficLightState = static_cast<State>((trafficLightState + 1) % 5);
+      controlTrafficLight(trafficLightState);
     }
   } else {
-    touchActivated = false; // Reset do estado quando o toque for deixado
+    touchActivated = false;
   }
 }
 
-/** Função Setup de início do código **/
+/** Setup inicial **/
 void setup() {
-  // Definir pinos como OUTPUT de saída para os LEDs
+  // Configurar pinos
   pinMode(LedRed, OUTPUT);
   pinMode(LedYellow, OUTPUT);
   pinMode(LedGreen, OUTPUT);
-
-  // Definir pinos como INPUT para o sensor de toque
   pinMode(sensorTouch, INPUT);
 
   // Inicializar comunicação serial
   Serial.begin(115200);
-  Serial.println("In setup function!");
+  Serial.println("Setup concluído!");
 
-  // Chamar funções:
-  controlTrafficLight(OFF); // Função de controlo do Semáforo começa com o estado OFF
+  // Configurar o temporizador
+  esp_timer_create_args_t timer_args = {
+      .callback = &onTimer, // Função de callback
+      .arg = NULL,
+      .dispatch_method = ESP_TIMER_TASK,
+      .name = "periodicTimer"};
+  esp_timer_create(&timer_args, &periodic_timer); // Criar o temporizador
+
+  // Iniciar semáforo no estado OFF
+  controlTrafficLight(OFF);
 }
 
-/** Função Loop de controlo do código **/
+/** Loop principal **/
 void loop() {
-  // Verificação constante do sensor de toque no loop
-  checkTouchSensor(); // Função de controlo do toque com base nos estados
+  // Verificar o sensor de toque
+  checkTouchSensor();
+
+  // Alterar estados automaticamente com base no temporizador
+  if (timerFlag) {
+    timerFlag = false; // Resetar a flag
+
+    // Alternar para o próximo estado
+    if (trafficLightState == RED) {
+      trafficLightState = GREEN;
+    } else if (trafficLightState == GREEN) {
+      trafficLightState = YELLOW;
+    } else if (trafficLightState == YELLOW) {
+      trafficLightState = RED;
+    }
+
+    // Atualizar o semáforo com o novo estado
+    controlTrafficLight(trafficLightState);
+  }
 }
